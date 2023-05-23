@@ -46,6 +46,7 @@ make.pca.plots = function(fpm, ntop = 1000, pca.dim = c(1, 2), scale.data.pca = 
   
 }
 
+
 ########################################################
 ########################################################
 # Section I : process micorarray data from GSE18811
@@ -374,7 +375,36 @@ rm(design)
 
 load(file = paste0(RdataDir, 'Newman_et_al_2012_design_normExpr.Rdata'))
 
-pdf(paste0(resDir, "/RNAseq_ageGenes_pval0.01_vs_Newman.2012.pdf"), height = 8, width =10)
+## compare the microarray and RNA-seq
+Compare_RNAseq_micorray = FALSE
+if(Compare_RNAseq_micorray){
+  library(preprocessCore)
+  yy1 = cpm[, c(1:13)]
+  yy2 = res
+  
+  ggs_intersect = intersect(rownames(yy1), rownames(yy2))
+  
+  yy1 = yy1[match(ggs_intersect, rownames(yy1)), ]
+  yy2 = yy2[match(ggs_intersect, rownames(yy2)), ]
+  
+  yy1 = apply(yy1, 1, median)
+  #yy2 = apply(yy2, 1, median)
+  
+  yy3 = preprocessCore::normalize.quantiles.use.target(as.matrix(yy2), target = as.vector(yy1))
+  colnames(yy3) = colnames(yy2)
+  rownames(yy3) = rownames(yy2)
+  res = yy3
+  
+  #yy3 = apply(yy3, 1, median)
+  
+  plot(yy1, yy3, cex = 0.5)
+  abline(0, 1, lwd = 1.5, col = 'red')
+  
+  
+}
+
+pdf(paste0(resDir, "/RNAseq_ageGenes_pval0.01_vs_Newman.2012_quantileNormalization.pdf"), 
+    height = 8, width =10)
 
 jj_macular = grep('_macular_', colnames(res))
 tt_macular = as.numeric(design$age[jj_macular])
@@ -432,7 +462,22 @@ genes2keep = rownames(slopes)[sels]
 
 saveRDS(genes2keep, file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
 
+yy = data.frame(xx[match(genes2keep, rownames(xx)), ], 
+                res[match(genes2keep, rownames(res)), ])
 
+pca2save <- prcomp(t(as.matrix(yy)), scale = TRUE)
+#pca2save = pca2save[, -c(1:2)]
+pca2save = data.frame(pca2save$x, design0)
+pca2save = data.frame(pca2save$x)
+pca2save$name = rownames(pca2save)
+pca2save$age = factor(pca2save$age)
+
+library(ggplot2)
+ggplot(data=pca2save, aes(PC1, PC2, label = name))  + 
+  geom_point(size=3) + 
+  geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
+
+#ggs2keep = readRDS(file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
 ########################################################
 ########################################################
 # Section III: process RNA-seq data from Bulter_2021_RNAseq_GSE159435
@@ -634,6 +679,118 @@ ggsave(paste0(resDir, '/RPE_RNAseq_PCA_age.genes_pval0.01_predition_alltimepoint
 # 
 ########################################################
 ########################################################
+load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+load(file = paste0(RdataDir,  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
+
+kk = which(cpm$pval<0.01); cat(length(kk), ' age-related genes \n')
+xx = cpm[kk, c(1:13)]
+colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
+rm(design)
+
+load(file = paste0(RdataDir, 'Newman_et_al_2012_design_normExpr.Rdata'))
+
+## compare the microarray and RNA-seq
+Compare_RNAseq_micorray = FALSE
+if(Compare_RNAseq_micorray){
+  library(preprocessCore)
+  yy1 = cpm[, c(1:13)]
+  yy2 = res
+  
+  ggs_intersect = intersect(rownames(yy1), rownames(yy2))
+  
+  yy1 = yy1[match(ggs_intersect, rownames(yy1)), ]
+  yy2 = yy2[match(ggs_intersect, rownames(yy2)), ]
+  
+  yy1 = apply(yy1, 1, median)
+  #yy2 = apply(yy2, 1, median)
+  
+  yy3 = preprocessCore::normalize.quantiles.use.target(as.matrix(yy2), target = as.vector(yy1))
+  colnames(yy3) = colnames(yy2)
+  rownames(yy3) = rownames(yy2)
+  res = yy3
+  
+  #yy3 = apply(yy3, 1, median)
+  
+  plot(yy1, yy3, cex = 0.5)
+  abline(0, 1, lwd = 1.5, col = 'red')
+  
+  
+}
+
+pdf(paste0(resDir, "/RNAseq_ageGenes_pval0.01_vs_Newman.2012_quantileNormalization.pdf"), 
+    height = 8, width =10)
+
+jj_macular = grep('_macular_', colnames(res))
+tt_macular = as.numeric(design$age[jj_macular])
+jj_extra = grep('_extramacular_', colnames(res))
+tt_extra = as.numeric(design$age[jj_extra])
+
+
+slopes = c()
+for(n in 1:nrow(xx0))
+{
+  # n = 1
+  test = c(cpm$beta[which(rownames(cpm) == rownames(xx0)[n])])
+  
+  ii = which(rownames(res) == rownames(xx0)[n])
+  if(length(ii) == 1){
+    cat(n, '-- gene : ', rownames(xx0)[n],   '--\n')
+    x =  as.numeric(xx0[n, -c(1:13)])
+    x = as.numeric(scale(x, center = TRUE, scale = FALSE))
+    t =  as.numeric(design0$age[-c(1:13)])
+    x1 = as.numeric(scale(as.numeric(res[ii, jj_macular]), center = TRUE, scale = FALSE))
+    x2 = as.numeric(scale(as.numeric(res[ii, jj_extra]), center = TRUE, scale = FALSE))
+    plot(t, x, cex = 1.0, type = 'p', ylim = range(c(x, x1, x2)),
+         main = paste0(rownames(xx0)[n]), xlab = 'age (year)', 
+         ylab = 'centered log2(Expression)', col = 'red')
+    points(t, x, lwd = 1.2, col = 'red', type = 'l')
+    #x =  as.numeric(xx0[n, c(1:13)])
+    #t =  as.numeric(design0$age[c(1:13)])
+    #points(t, x, lwd = 1.2, col = 'blue', type = 'p')
+    
+    points(tt_macular, x1, cex = 1.2, col = 'darkorange')
+    points(tt_extra, x2, cex = 1.2, col = 'black')
+    fit1 = lm(x1 ~ tt_macular)
+    abline(coefficients(fit1), lwd = 1.2, col = 'darkorange')
+    fit2 = lm(x2 ~ tt_extra)
+    test = c(test, coefficients(fit1)[2], coefficients(fit2)[2])
+    abline(coefficients(fit2), lwd = 1.2, col = 'black')
+    slopes = rbind(slopes, test)
+    
+  }else{
+    cat(n, '-- gene : ', rownames(xx0)[n],   'not found--\n')
+    slopes = rbind(slopes, c(test, NA, NA))
+  }
+  
+}
+
+dev.off()
+
+## filter the age-dependent genes
+rownames(slopes) = rownames(xx0)
+sels = which(!is.na(slopes[,2]) & !is.na(slopes[,3]))
+slopes = slopes[sels, ]
+sels = c()
+sels = apply(slopes, 1, function(x) {sign(x[1]) == sign(x[2]) & sign(x[1]) == sign(x[3])})
+genes2keep = rownames(slopes)[sels]
+
+saveRDS(genes2keep, file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
+
+yy = data.frame(xx[match(genes2keep, rownames(xx)), ], 
+                res[match(genes2keep, rownames(res)), ])
+
+pca2save <- prcomp(t(as.matrix(yy)), scale = TRUE)
+#pca2save = pca2save[, -c(1:2)]
+pca2save = data.frame(pca2save$x, design0)
+pca2save = data.frame(pca2save$x)
+pca2save$name = rownames(pca2save)
+pca2save$age = factor(pca2save$age)
+
+library(ggplot2)
+ggplot(data=pca2save, aes(PC1, PC2, label = name))  + 
+  geom_point(size=3) + 
+  geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
+
 
 ##########################################
 # test Quantile normalization 
