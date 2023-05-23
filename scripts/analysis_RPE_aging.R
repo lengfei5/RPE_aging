@@ -189,6 +189,79 @@ res = res[order(res$P.Value_adult.vs.fetal), ]
 save(mapping, design, ex, res, 
      file = paste0(RdataDir, 'design_probAnnot_expr_gene.sample.matrix.Rdata'))
 
+##########################################
+# compare RNA-seq age-genes with microarray RPE
+##########################################
+load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+load(file = paste0(RdataDir,  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
+genes2keep = readRDS(file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
+
+kk = which(cpm$pval<0.01); cat(length(kk), ' age-related genes \n')
+xx = cpm[kk, c(1:13)]
+colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
+rm(design)
+
+xx0 = xx0[match(genes2keep, rownames(xx0)), ]
+xx = xx[match(genes2keep, rownames(xx)), ]
+
+load(file = paste0(RdataDir, 'design_probAnnot_expr_gene.sample.matrix.Rdata'))
+
+
+pdf(paste0(resDir, "/RNAseq_ageGenes_vs_fetal.Old.microarray.pdf"), height = 8, width =10)
+
+#jj_macular = grep('_macular_', colnames(res))
+tt_microarray = design$age
+tt_microarray[grep('w', tt_microarray)] = 0.30
+tt_microarray = as.numeric(tt_microarray)
+#jj_extra = grep('_extramacular_', colnames(res))
+#tt_extra = as.numeric(design$age[jj_extra])
+
+slopes = c()
+
+for(n in 1:nrow(xx0))
+{
+  # n = 1
+  ii = which(rownames(res) == rownames(xx0)[n])
+  test = c(cpm$beta[which(rownames(cpm) == rownames(xx0)[n])])
+  
+  if(length(ii) == 1){
+    cat(n, '-- gene : ', rownames(xx0)[n],   '--\n')
+    x =  as.numeric(xx0[n, -c(1:13)])
+    x = as.numeric(scale(x, center = TRUE, scale = FALSE))
+    t =  as.numeric(design0$age[-c(1:13)])
+    x1 = as.numeric(scale(as.numeric(res[ii, 1:10]), center = TRUE, scale = FALSE))
+    #x2 = as.numeric(scale(res[ii, jj_extra], center = TRUE, scale = FALSE))
+    plot(t, x, cex = 1.0, type = 'p', ylim = range(c(x, x1, x2)),
+         main = paste0(rownames(xx0)[n]), xlab = 'age (year)', 
+         ylab = 'centered log2(Expression)', col = 'red')
+    points(t, x, lwd = 1.2, col = 'red', type = 'l')
+    #x =  as.numeric(xx0[n, c(1:13)])
+    #t =  as.numeric(design0$age[c(1:13)])
+    #points(t, x, lwd = 1.2, col = 'blue', type = 'p')
+    
+    points(tt_microarray, x1, cex = 1.2, col = 'darkorange')
+    #points(tt_extra, x2, cex = 1.2, col = 'black')
+    fit1 = lm(x1 ~ tt_microarray)
+    test = c(test, coefficients(fit1)[2])
+    #abline(coefficients(fit1), lwd = 1.2, col = 'darkorange')
+    #fit2 = lm(x2 ~ tt_extra)
+    #abline(coefficients(fit2), lwd = 1.2, col = 'black')
+    slopes = rbind(slopes, test)
+  }else{
+    cat(n, '-- gene : ', rownames(xx0)[n],   'not found--\n')
+    slopes = rbind(slopes, c(test, NA))
+  }
+  
+}
+
+dev.off()
+
+sels = which(!is.na(slopes[,2]) & sign(slopes[,1]) == sign(slopes[,2]))
+genes2keep = rownames(xx0)[sels]
+
+saveRDS(genes2keep, 
+        file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray_RPE.fetal.age.microarray.rds'))
+
 ########################################################
 ########################################################
 # Section 1.5:
@@ -288,9 +361,81 @@ save(design, res,
 
 make.pca.plots(res[, grep('_extramacular_', colnames(res))], ntop = 1000, pca.dim = c(1, 3))
 
+##########################################
+# compare the RNA-seq and micro-array data in Newman 2012
+##########################################
+load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+load(file = paste0(RdataDir,  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
+
+kk = which(cpm$pval<0.01); cat(length(kk), ' age-related genes \n')
+xx = cpm[kk, c(1:13)]
+colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
+rm(design)
+
+load(file = paste0(RdataDir, 'Newman_et_al_2012_design_normExpr.Rdata'))
+
+pdf(paste0(resDir, "/RNAseq_ageGenes_pval0.01_vs_Newman.2012.pdf"), height = 8, width =10)
+
+jj_macular = grep('_macular_', colnames(res))
+tt_macular = as.numeric(design$age[jj_macular])
+jj_extra = grep('_extramacular_', colnames(res))
+tt_extra = as.numeric(design$age[jj_extra])
+
+
+slopes = c()
+for(n in 1:nrow(xx0))
+{
+  # n = 1
+  test = c(cpm$beta[which(rownames(cpm) == rownames(xx0)[n])])
+  
+  ii = which(rownames(res) == rownames(xx0)[n])
+  if(length(ii) == 1){
+    cat(n, '-- gene : ', rownames(xx0)[n],   '--\n')
+    x =  as.numeric(xx0[n, -c(1:13)])
+    x = as.numeric(scale(x, center = TRUE, scale = FALSE))
+    t =  as.numeric(design0$age[-c(1:13)])
+    x1 = as.numeric(scale(as.numeric(res[ii, jj_macular]), center = TRUE, scale = FALSE))
+    x2 = as.numeric(scale(as.numeric(res[ii, jj_extra]), center = TRUE, scale = FALSE))
+    plot(t, x, cex = 1.0, type = 'p', ylim = range(c(x, x1, x2)),
+         main = paste0(rownames(xx0)[n]), xlab = 'age (year)', 
+         ylab = 'centered log2(Expression)', col = 'red')
+    points(t, x, lwd = 1.2, col = 'red', type = 'l')
+    #x =  as.numeric(xx0[n, c(1:13)])
+    #t =  as.numeric(design0$age[c(1:13)])
+    #points(t, x, lwd = 1.2, col = 'blue', type = 'p')
+   
+    points(tt_macular, x1, cex = 1.2, col = 'darkorange')
+    points(tt_extra, x2, cex = 1.2, col = 'black')
+    fit1 = lm(x1 ~ tt_macular)
+    abline(coefficients(fit1), lwd = 1.2, col = 'darkorange')
+    fit2 = lm(x2 ~ tt_extra)
+    test = c(test, coefficients(fit1)[2], coefficients(fit2)[2])
+    abline(coefficients(fit2), lwd = 1.2, col = 'black')
+    slopes = rbind(slopes, test)
+    
+  }else{
+    cat(n, '-- gene : ', rownames(xx0)[n],   'not found--\n')
+    slopes = rbind(slopes, c(test, NA, NA))
+  }
+  
+}
+
+dev.off()
+
+## filter the age-dependent genes
+rownames(slopes) = rownames(xx0)
+sels = which(!is.na(slopes[,2]) & !is.na(slopes[,3]))
+slopes = slopes[sels, ]
+sels = c()
+sels = apply(slopes, 1, function(x) {sign(x[1]) == sign(x[2]) & sign(x[1]) == sign(x[3])})
+genes2keep = rownames(slopes)[sels]
+
+saveRDS(genes2keep, file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
+
+
 ########################################################
 ########################################################
-# Section II: process RNA-seq data from Bulter_2021_RNAseq_GSE159435
+# Section III: process RNA-seq data from Bulter_2021_RNAseq_GSE159435
 # 
 ########################################################
 ########################################################
@@ -418,7 +563,7 @@ dev.off()
 ##########################################
 load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
 
-kk = which(cpm$pval<0.001); cat(length(kk), ' age-related genes \n')
+kk = which(cpm$pval<0.01); cat(length(kk), ' age-related genes \n')
 
 xx = cpm[kk, c(1:13)]
 colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
@@ -435,12 +580,12 @@ ggplot(data=pca2save, aes(PC1, PC2, label = name, color= age, shape = batch))  +
   geom_point(size=3) + 
   geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
 
-ggsave(paste0(resDir, '/RPE_RNAseq_PCA_179age.genes.pdf'), 
+ggsave(paste0(resDir, '/RPE_RNAseq_PCA_910age.genes.pdf'), 
        width=8, height = 4)
 
 
 ## add extrapolated data
-kk = which(cpm$pval<0.001); cat(length(kk), ' age-related genes \n')
+kk = which(cpm$pval<0.01); cat(length(kk), ' age-related genes \n')
 xx = cpm[kk, c(1:13)]
 colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
 
@@ -463,6 +608,9 @@ design0 = rbind(design0, data.frame(batch = rep('synthetic', length(tt)),
                                     age = tt, 
                                     sex = "M.F"))
 rownames(design0) = colnames(xx)
+xx0 = xx
+save(xx0, design0,  file = paste0(RdataDir, 
+                                  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
 
 pca2save <- prcomp(t(as.matrix(xx)), scale = TRUE)
 #pca2save = pca2save[, -c(1:2)]
@@ -475,7 +623,7 @@ ggplot(data=pca2save, aes(PC1, PC2, label = name, color= age, shape = batch))  +
   geom_point(size=3) + 
   geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
 
-ggsave(paste0(resDir, '/RPE_RNAseq_PCA_179age.genes_predition_alltimepoints.pdf'), 
+ggsave(paste0(resDir, '/RPE_RNAseq_PCA_age.genes_pval0.01_predition_alltimepoints.pdf'), 
        width=8, height = 4)
 
 
@@ -486,6 +634,38 @@ ggsave(paste0(resDir, '/RPE_RNAseq_PCA_179age.genes_predition_alltimepoints.pdf'
 # 
 ########################################################
 ########################################################
+
+##########################################
+# test Quantile normalization 
+##########################################
+Test_intergration_QN = FALSE
+if(Test_intergration_QN){
+  xx1 = preprocessCore::normalize.quantiles.use.target(as.matrix(xx2), target = as.vector(xx0[,1]))
+  colnames(xx1) = colnames(xx2)
+  rownames(xx1) = rownames(xx2)
+  
+  tmm = as.matrix(cbind(xx0, xx1))
+  #tmm.qn = preprocessCore::normalize.quantiles(tmm)
+  #colnames(tmm.qn) = colnames(tmm)
+  #rownames(tmm.qn) = rownames(tmm)
+  #tmm = tmm.qn
+  #make.pca.plots(tmm, ntop = 3000)
+  bc = as.factor(c(rep('RNAseq', nrow(design0)), rep('microarray', nrow(design))))
+  conds = c('31', '40', '51', '67', '70.80', '86', '93', '61', '62', '70.80', '70.80', '70.80', '92',
+            '0.3', '0.3', '0.3', '70.80', '70.80', '70.80', '0.3', '0.3', '0.3', '70.80')
+  mod = model.matrix(~ as.factor(conds))
+  
+  # if specify ref.batch, the parameters will be estimated from the ref, inapprioate here, 
+  # because there is no better batche other others 
+  #ref.batch = '2021S'# 2021S as reference is better for some reasons (NOT USED here)    
+  fpm.bc = ComBat(dat=as.matrix(tmm), batch=bc, mod=mod, par.prior=TRUE, ref.batch = NULL) 
+  
+  make.pca.plots(fpm.bc, pca.dim = c(1, 3), ntop = 500)
+  #make.pca.plots(fpm.bc, ntop = 3000)
+  ggsave(paste0(resDir, "/first_test_batchCorrect_RNAseq_microarray.pdf"), width = 10, height = 8)
+  
+}
+
 load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
 design0 = design
 
@@ -530,34 +710,5 @@ if(Test_intergration_combat){
   
 }
 
-##########################################
-# test Quantile normalization 
-##########################################
-Test_intergration_QN = FALSE
-if(Test_intergration_QN){
-  xx1 = preprocessCore::normalize.quantiles.use.target(as.matrix(xx2), target = as.vector(xx0[,1]))
-  colnames(xx1) = colnames(xx2)
-  rownames(xx1) = rownames(xx2)
-  
-  tmm = as.matrix(cbind(xx0, xx1))
-  #tmm.qn = preprocessCore::normalize.quantiles(tmm)
-  #colnames(tmm.qn) = colnames(tmm)
-  #rownames(tmm.qn) = rownames(tmm)
-  #tmm = tmm.qn
-  #make.pca.plots(tmm, ntop = 3000)
-  bc = as.factor(c(rep('RNAseq', nrow(design0)), rep('microarray', nrow(design))))
-  conds = c('31', '40', '51', '67', '70.80', '86', '93', '61', '62', '70.80', '70.80', '70.80', '92',
-            '0.3', '0.3', '0.3', '70.80', '70.80', '70.80', '0.3', '0.3', '0.3', '70.80')
-  mod = model.matrix(~ as.factor(conds))
-  
-  # if specify ref.batch, the parameters will be estimated from the ref, inapprioate here, 
-  # because there is no better batche other others 
-  #ref.batch = '2021S'# 2021S as reference is better for some reasons (NOT USED here)    
-  fpm.bc = ComBat(dat=as.matrix(tmm), batch=bc, mod=mod, par.prior=TRUE, ref.batch = NULL) 
-  
-  make.pca.plots(fpm.bc, pca.dim = c(1, 3), ntop = 500)
-  #make.pca.plots(fpm.bc, ntop = 3000)
-  ggsave(paste0(resDir, "/first_test_batchCorrect_RNAseq_microarray.pdf"), width = 10, height = 8)
-  
-  
-}
+
+
