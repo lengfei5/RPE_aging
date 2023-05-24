@@ -181,7 +181,7 @@ sc.quad.prog.run <- function(bulk.transcriptome, single.cell.transcriptome, forc
 }
 
 
-quad.prog.calc <- function(col.num, bulk.transcriptome, single.cell.transcriptome, force.eq) {
+quad.prog.calc <- function(col.num, bulk.transcriptome, single.cell.transcriptome, force.eq = 0) {
   library(quadprog)
   # bulk.transcriptome = refs; single.cell.transcriptome = samples; col.num = 1
   Y <- as.matrix(single.cell.transcriptome[, col.num])
@@ -195,6 +195,7 @@ quad.prog.calc <- function(col.num, bulk.transcriptome, single.cell.transcriptom
   b <- c(-1, rep(0, q))
   
   QP<-solve.QP(Dmat = Rinv, factorized = TRUE, dvec = d, bvec = b, Amat = C, meq = force.eq)
+  
   Error<-sum(abs(Y- bulk.transcriptome %*% QP$solution))
   
   return(list(QP, colnames(single.cell.transcriptome)[col.num], Error))

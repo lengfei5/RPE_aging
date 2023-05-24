@@ -821,9 +821,12 @@ library(gridExtra)
 library(grid)
 library(lattice)
 library(ggpubr)
+library(preprocessCore)
 
 load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
 load(file = paste0(RdataDir,  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
+
+nb_genes_toUse = 50
 
 Use_selecteGenes = TRUE
 if(Use_selecteGenes){
@@ -834,50 +837,76 @@ if(Use_selecteGenes){
   pvals = cpm$pval[match(rownames(refs), rownames(cpm))]
   refs$pvals = pvals
   refs = refs[order(refs$pvals), ]
-  refs = refs[c(1:100), c(1:10)]
   
-}else{
-  kk = which(cpm$pval<0.001); cat(length(kk), ' age-related genes \n')
-  xx = cpm[kk, c(1:13)]
-  colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
-  
-  refs = xx0[match(rownames(xx), rownames(xx0)), grep('syn_', colnames(xx0))]
+  #refs = refs[c(1:50), c(1:10)]
+  refs = refs[c(1:nb_genes_toUse), c(1:10)]
   
 }
 
-
 dds = readRDS(paste0(RdataDir, 'RNAseq_RPE.cellLine_Birgit.rds'))
-
 xx = fpm(dds)
-
-ggs_intersect = intersect(rownames(refs), rownames(xx))
-xx = xx[match(ggs_intersect, rownames(xx)), ]
-refs = refs[match(ggs_intersect, rownames(refs)), ]
-
 xx = as.matrix(log1p(xx))
 
-samples = t(rbind(apply(xx[, c(1:4)], 1, mean), apply(xx[, -c(1:4)], 1, mean)))
-colnames(samples) = c('young', 'old')
+Add_microarray = FALSE
+if(Add_microarray){
+  
+  load(file = paste0(RdataDir, 'design_probAnnot_expr_gene.sample.matrix.Rdata'))
+  yy1 = xx
+    
+  yy2 = res[, c(1:10)]
+  #yy2 = yy2[, c(4:6,10)]
+  ggs_intersect = intersect(rownames(yy1), rownames(yy2))
+  
+  yy1 = yy1[match(ggs_intersect, rownames(yy1)), ]
+  yy2 = yy2[match(ggs_intersect, rownames(yy2)), ]
+  
+  xx = yy1
+  yy1 = apply(yy1, 1, mean)
+  yy2 = log1p(2^yy2)
+  #yy3 = apply(yy2, 1, median)
+  
+  ## test quantile normalization
+  yy3 = preprocessCore::normalize.quantiles.use.target(as.matrix(yy2), target = as.vector(yy1))
+  colnames(yy3) = colnames(yy2)
+  rownames(yy3) = rownames(yy2)
+  
+  res = yy3
+  
+  samples = cbind(apply(xx[, c(1:4)], 1, mean), apply(xx[, -c(1:4)], 1, mean))
+  samples = cbind(samples, apply(res[, grep('w_', colnames(res))], 1, mean))
+  samples = cbind(samples, apply(res[, grep('w_', colnames(res), invert = TRUE)], 1, mean))
+  
+  colnames(samples) = c('young', 'old', 'fetal.ma', 'old.ma')
+  
+  
+}else{
+  samples = xx
+  #colnames(samples) = colnames(xx0)[1:13]
+  #samples = samples[, order(design$age)]
+  #samples = t(rbind(apply(xx[, c(1:4)], 1, mean), apply(xx[, -c(1:4)], 1, mean)))
+  #colnames(samples) = c('young', 'old')
+  
+}
+
+ggs_intersect = intersect(rownames(refs), rownames(samples))
+
+samples = samples[match(ggs_intersect, rownames(samples)), ]
+refs = refs[match(ggs_intersect, rownames(refs)), ]
 
 source('functions_quadratic_programming.R')
 
 samples = as.matrix(samples)
 refs = as.matrix(log1p(2^refs - 2^-4))
 
-#refs = apply(refs, 2, scale)
-#samples = apply(samples, 2, scale)
-
-#scale.ratio.sc <- calc.scale.ratio(refs, samples)
-#scale.norm.sc <- refs/scale.ratio.sc
-
-identity.matx <- data.frame()
 given.cell.typs <- colnames(refs)
 
+identity.matx <- data.frame()
 for (i in 1:ncol(samples))
 {
   # i = 1
   identity<-c()
   quad.rslt <- quad.prog.calc(i, refs, samples, force.eq = 0)
+  
   QP <- quad.rslt[[1]]
   Error <- quad.rslt[[3]]
   
@@ -894,27 +923,32 @@ for (i in 1:ncol(samples))
 col.frx.names <- paste("frxn_", given.cell.typs, sep = "")
 colnames(identity.matx)<-c("cell_name", col.frx.names,"Lagrangian","Error")
 
-xx = t(identity.matx[, c(1:11)])
-colnames(xx) = c('young', 'old')
-xx = xx[-1, ]
-xx = data.frame(xx)
-xx$young = as.numeric(xx$young)
-xx$old = as.numeric(xx$old)
-xx[which(xx[,1]<0.001), 1] = 0
-xx[which(xx[,2]<0.001), 2] = 0
+cat(length(ggs_intersect), ' overlapping genes used \n')
+print(identity.matx$Error)
 
-xx$age = rownames(xx)
-xx$age = gsub('frxn_syn_', '', xx$age)
+keep = t(identity.matx[, c(1:(1+length(given.cell.typs)))])
+colnames(keep) = keep[1,]
+keep = keep[-1, ]
+keep = data.frame(keep)
+keep2 = apply(keep, 2, function(x){x = as.numeric(x); x[which(x < 0.001)] = 0; x})
+rownames(keep2) = rownames(keep)
+keep = data.frame(keep2);rm(keep2)
 
-as_tibble(xx) %>%
-  tidyr::gather(samples, probs, 1:2) %>%
-  ggplot(aes(x= factor(samples, levels = c('young', 'old')), y = probs, fill=age)) +
+keep$age = rownames(keep)
+keep$age = gsub('frxn_syn_', '', keep$age)
+
+age_levels = colnames(keep)
+
+as_tibble(keep) %>%
+  tidyr::gather(samples, probs, 1:(ncol(keep)-1)) %>%
+  #ggplot(aes(x= factor(samples, levels = c('young', 'old')), y = probs, fill=age)) +
+  ggplot(aes(x= factor(samples, levels = age_levels), y = probs, fill=age)) +
   geom_bar(stat="identity") +
   scale_fill_brewer(palette="Paired") + 
   labs(x = "", y = 'Probility') +
   theme_classic() +
-  theme(axis.text.x = element_text(size = 12), 
+  theme(axis.text.x = element_text(size = 12, angle = 90), 
         axis.text.y = element_text(size = 12))
 
-ggsave(paste0(resDir, "/res_quadraticProgramming.pdf"), 
+ggsave(paste0(resDir, "/res_quadraticProgramming_cellLine_ageEstimate_geneNumber_", nrow(refs), ".pdf"), 
        width = 6, height = 4)
