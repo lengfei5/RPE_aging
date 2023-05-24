@@ -17,6 +17,7 @@ RdataDir = paste0('../results/Rdata/')
 if(!dir.exists(resDir)) dir.create(resDir)
 if(!dir.exists(RdataDir)) dir.create(RdataDir)
 
+require(ggplot2)
 require("sva")
 require(limma)
 require(preprocessCore)
@@ -526,7 +527,7 @@ save(counts, design, file = paste0(RdataDir, 'design_countTable_RPE_RNAseq_Bulte
 
 ## DESeq2 normalization and PCA
 require(DESeq2)
-require(ggplot2)
+
 
 dds <- DESeqDataSetFromMatrix(as.matrix(counts), DataFrame(design), design = ~ 1)
 
@@ -674,7 +675,7 @@ ggsave(paste0(resDir, '/RPE_RNAseq_PCA_age.genes_pval0.01_predition_alltimepoint
 
 ########################################################
 ########################################################
-# Section II: 
+# Section III: 
 # test to integrate RNA-seq data and microarray 
 # 
 ########################################################
@@ -687,157 +688,70 @@ xx = cpm[kk, c(1:13)]
 colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
 rm(design)
 
-load(file = paste0(RdataDir, 'Newman_et_al_2012_design_normExpr.Rdata'))
+#load(file = paste0(RdataDir, 'Newman_et_al_2012_design_normExpr.Rdata'))
+load(file = paste0(RdataDir, 'design_probAnnot_expr_gene.sample.matrix.Rdata'))
+#yy = data.frame(yy, res[match(genes2keep, rownames(res)), c(1:10)])
+
+genes2keep = readRDS(file = paste0(RdataDir, 
+                                   'genes_to_keep_RNAseq_vs_RPEChoroid.microarray_RPE.fetal.age.microarray.rds'))
+
 
 ## compare the microarray and RNA-seq
 Compare_RNAseq_micorray = FALSE
 if(Compare_RNAseq_micorray){
   library(preprocessCore)
   yy1 = cpm[, c(1:13)]
-  yy2 = res
+  colnames(yy1) = colnames(xx)
+  yy1 = yy1[, c(5,10:12)]
   
+  yy2 = res[, c(1:10)]
+  yy2 = yy2[, c(4:6,10)]
   ggs_intersect = intersect(rownames(yy1), rownames(yy2))
   
   yy1 = yy1[match(ggs_intersect, rownames(yy1)), ]
   yy2 = yy2[match(ggs_intersect, rownames(yy2)), ]
   
   yy1 = apply(yy1, 1, median)
-  #yy2 = apply(yy2, 1, median)
+  yy3 = apply(yy2, 1, median)
   
+  ## test quantile normalization
   yy3 = preprocessCore::normalize.quantiles.use.target(as.matrix(yy2), target = as.vector(yy1))
   colnames(yy3) = colnames(yy2)
   rownames(yy3) = rownames(yy2)
   res = yy3
   
-  #yy3 = apply(yy3, 1, median)
+  yy3 = apply(yy3, 1, median)
   
   plot(yy1, yy3, cex = 0.5)
   abline(0, 1, lwd = 1.5, col = 'red')
   
+  fit = lm(yy1 ~ yy3)
+  
+  yy4 = as.matrix(res[, c(1:10)]) * coefficients(fit)[2] + coefficients(fit)[1]
   
 }
 
-pdf(paste0(resDir, "/RNAseq_ageGenes_pval0.01_vs_Newman.2012_quantileNormalization.pdf"), 
-    height = 8, width =10)
+#saveRDS(genes2keep, file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
+yy = data.frame(xx0[match(genes2keep, rownames(xx0)), ], 
+                res[match(genes2keep, rownames(res)), c(1:10)])
 
-jj_macular = grep('_macular_', colnames(res))
-tt_macular = as.numeric(design$age[jj_macular])
-jj_extra = grep('_extramacular_', colnames(res))
-tt_extra = as.numeric(design$age[jj_extra])
+#yy = yy[, grep('GSM738', colnames(yy), invert = TRUE)]
 
-
-slopes = c()
-for(n in 1:nrow(xx0))
-{
-  # n = 1
-  test = c(cpm$beta[which(rownames(cpm) == rownames(xx0)[n])])
-  
-  ii = which(rownames(res) == rownames(xx0)[n])
-  if(length(ii) == 1){
-    cat(n, '-- gene : ', rownames(xx0)[n],   '--\n')
-    x =  as.numeric(xx0[n, -c(1:13)])
-    x = as.numeric(scale(x, center = TRUE, scale = FALSE))
-    t =  as.numeric(design0$age[-c(1:13)])
-    x1 = as.numeric(scale(as.numeric(res[ii, jj_macular]), center = TRUE, scale = FALSE))
-    x2 = as.numeric(scale(as.numeric(res[ii, jj_extra]), center = TRUE, scale = FALSE))
-    plot(t, x, cex = 1.0, type = 'p', ylim = range(c(x, x1, x2)),
-         main = paste0(rownames(xx0)[n]), xlab = 'age (year)', 
-         ylab = 'centered log2(Expression)', col = 'red')
-    points(t, x, lwd = 1.2, col = 'red', type = 'l')
-    #x =  as.numeric(xx0[n, c(1:13)])
-    #t =  as.numeric(design0$age[c(1:13)])
-    #points(t, x, lwd = 1.2, col = 'blue', type = 'p')
-    
-    points(tt_macular, x1, cex = 1.2, col = 'darkorange')
-    points(tt_extra, x2, cex = 1.2, col = 'black')
-    fit1 = lm(x1 ~ tt_macular)
-    abline(coefficients(fit1), lwd = 1.2, col = 'darkorange')
-    fit2 = lm(x2 ~ tt_extra)
-    test = c(test, coefficients(fit1)[2], coefficients(fit2)[2])
-    abline(coefficients(fit2), lwd = 1.2, col = 'black')
-    slopes = rbind(slopes, test)
-    
-  }else{
-    cat(n, '-- gene : ', rownames(xx0)[n],   'not found--\n')
-    slopes = rbind(slopes, c(test, NA, NA))
-  }
-  
-}
-
-dev.off()
-
-## filter the age-dependent genes
-rownames(slopes) = rownames(xx0)
-sels = which(!is.na(slopes[,2]) & !is.na(slopes[,3]))
-slopes = slopes[sels, ]
-sels = c()
-sels = apply(slopes, 1, function(x) {sign(x[1]) == sign(x[2]) & sign(x[1]) == sign(x[3])})
-genes2keep = rownames(slopes)[sels]
-
-saveRDS(genes2keep, file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
-
-yy = data.frame(xx[match(genes2keep, rownames(xx)), ], 
-                res[match(genes2keep, rownames(res)), ])
-
-pca2save <- prcomp(t(as.matrix(yy)), scale = TRUE)
+pca2save <- prcomp(t(as.matrix(yy)), scale = FALSE)
 #pca2save = pca2save[, -c(1:2)]
-pca2save = data.frame(pca2save$x, design0)
+#pca2save = data.frame(pca2save$x, design0)
 pca2save = data.frame(pca2save$x)
 pca2save$name = rownames(pca2save)
-pca2save$age = factor(pca2save$age)
+#pca2save$age = factor(pca2save$age)
 
 library(ggplot2)
 ggplot(data=pca2save, aes(PC1, PC2, label = name))  + 
   geom_point(size=3) + 
   geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
 
+ggsave(paste0(resDir, '/RPE_RNAseq_vs_MA_PCA_age.genes.188.pdf'), 
+       width=8, height = 4)
 
-##########################################
-# test Quantile normalization 
-##########################################
-Test_intergration_QN = FALSE
-if(Test_intergration_QN){
-  xx1 = preprocessCore::normalize.quantiles.use.target(as.matrix(xx2), target = as.vector(xx0[,1]))
-  colnames(xx1) = colnames(xx2)
-  rownames(xx1) = rownames(xx2)
-  
-  tmm = as.matrix(cbind(xx0, xx1))
-  #tmm.qn = preprocessCore::normalize.quantiles(tmm)
-  #colnames(tmm.qn) = colnames(tmm)
-  #rownames(tmm.qn) = rownames(tmm)
-  #tmm = tmm.qn
-  #make.pca.plots(tmm, ntop = 3000)
-  bc = as.factor(c(rep('RNAseq', nrow(design0)), rep('microarray', nrow(design))))
-  conds = c('31', '40', '51', '67', '70.80', '86', '93', '61', '62', '70.80', '70.80', '70.80', '92',
-            '0.3', '0.3', '0.3', '70.80', '70.80', '70.80', '0.3', '0.3', '0.3', '70.80')
-  mod = model.matrix(~ as.factor(conds))
-  
-  # if specify ref.batch, the parameters will be estimated from the ref, inapprioate here, 
-  # because there is no better batche other others 
-  #ref.batch = '2021S'# 2021S as reference is better for some reasons (NOT USED here)    
-  fpm.bc = ComBat(dat=as.matrix(tmm), batch=bc, mod=mod, par.prior=TRUE, ref.batch = NULL) 
-  
-  make.pca.plots(fpm.bc, pca.dim = c(1, 3), ntop = 500)
-  #make.pca.plots(fpm.bc, ntop = 3000)
-  ggsave(paste0(resDir, "/first_test_batchCorrect_RNAseq_microarray.pdf"), width = 10, height = 8)
-  
-}
-
-load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
-design0 = design
-
-load(file = paste0(RdataDir, 'design_probAnnot_expr_gene.sample.matrix.Rdata'))
-vsd <- varianceStabilizingTransformation(dds, blind = FALSE)
-
-xx0 = assay(vsd)
-xx2 = res[, c(1:10)]
-
-ggs = intersect(rownames(xx0), rownames(xx2))
-
-xx0 = xx0[match(ggs, rownames(xx0)),]
-xx2 = xx2[match(ggs, rownames(xx2)), ]
-
-colnames(xx0) = paste0(design0$donor, '_', design0$age, '_',  design0$sex)
 
 
 ##########################################
@@ -846,26 +760,185 @@ colnames(xx0) = paste0(design0$donor, '_', design0$age, '_',  design0$sex)
 Test_intergration_combat = FALSE
 
 if(Test_intergration_combat){
-  tmm = as.matrix(cbind(xx0, xx2))
+  
+  tmm = as.matrix(yy)
+  
+  Test_QN = FALSE
+  if(Test_QN){
+    yy2 = tmm[, grep('GSM', colnames(tmm))]
+    yy0 = apply(tmm[, grep('syn_', colnames(tmm))], 1, mean)
+    yy3 = preprocessCore::normalize.quantiles.use.target(as.matrix(yy2), target = as.vector(yy0))
+    colnames(yy3) = colnames(yy2)
+    rownames(yy3) = rownames(yy2)
+    
+    tmm = data.frame(tmm[, c(1:23)], yy3)
+    tmm = as.matrix(tmm)
+    
+    
+  }
   
   bc = as.factor(c(rep('RNAseq', nrow(design0)), rep('microarray', nrow(design))))
-  conds = c('31', '40', '51', '67', '70.80', '86', '93', '61', '62', '70.80', '70.80', '70.80', '92',
-            '0.3', '0.3', '0.3', '70.80', '70.80', '70.80', '0.3', '0.3', '0.3', '70.80')
+  conds = c('30', '40', '50', '60', '70', '80', '90', '60', '60', '70', '70', '70', '90',
+            '0.3', 's10','s20', 's30','s40', 's50', 's60', 's70', 's80', 's90',
+            '0.3', '0.3', '0.3', '70', '70', '70', '0.3', '0.3', '0.3', '70')
   mod = model.matrix(~ as.factor(conds))
   
   # if specify ref.batch, the parameters will be estimated from the ref, inapprioate here, 
   # because there is no better batche other others 
   #ref.batch = '2021S'# 2021S as reference is better for some reasons (NOT USED here)    
-  fpm.bc = ComBat(dat=as.matrix(tmm), batch=bc, mod=mod, par.prior=TRUE, ref.batch = NULL) 
+  fpm.bc = ComBat(dat=as.matrix(tmm), batch=bc, mod=mod, par.prior=FALSE, ref.batch = NULL) 
   
-  make.pca.plots(tmm, ntop = 3000)
+  pca2save <- prcomp(t(as.matrix(fpm.bc)), scale = FALSE)
+  #pca2save = pca2save[, -c(1:2)]
+  #pca2save = data.frame(pca2save$x, design0)
+  pca2save = data.frame(pca2save$x)
+  pca2save$name = rownames(pca2save)
+  pca2save$age = factor(conds)
+  pca2save$batch = bc
+  
+  library(ggplot2)
+  ggplot(data=pca2save, aes(PC1, PC2, label = name, color = age, shape = batch))  + 
+    geom_point(size=3) + 
+    geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
+  
   ggsave(paste0(resDir, "/matureSamples_batchCorrect_before_",  version.analysis, ".pdf"), 
          width = 16, height = 14)
   
-  make.pca.plots(fpm.bc, ntop = 3000)
-  ggsave(paste0(resDir, "/first_test_batchCorrect_RNAseq_microarray.pdf"), width = 16, height = 14)
+    
+}
+
+
+########################################################
+########################################################
+# Section : Test quadratic programming to assign age
+# 
+########################################################
+########################################################
+##########################################
+# import the cellline RNA-seq data and process 
+##########################################
+require(DESeq2)
+
+counts = readRDS('/groups/tanaka/Collaborations/Jingkui-Birgit/youngD0.rds')
+counts2 = readRDS('/groups/tanaka/Collaborations/Jingkui-Birgit/oldD0.rds')
+counts = data.frame(counts, counts2[match(rownames(counts), rownames(counts2)), ])
+
+design = data.frame(age = rep(c('young', 'old'),  each = 4))
+dds <- DESeqDataSetFromMatrix(as.matrix(counts), DataFrame(design), design = ~ age)
+
+ss = rowSums(counts(dds))
+
+hist(log10(ss), breaks = 100);abline(v = log10(20), lwd = 2.0, col = 'red')
+cat(length(which(ss>20)), ' gene selected \n')
+dds = dds[which(ss>20), ]
+
+dds = estimateSizeFactors(dds)
+
+saveRDS(dds, file = paste0(RdataDir, 'RNAseq_RPE.cellLine_Birgit.rds'))
+##########################################
+# test quadratic programming
+##########################################
+require(tibble)
+require(tidyr)
+require(dplyr)
+library(gridExtra)
+library(grid)
+library(lattice)
+library(ggpubr)
+
+load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+load(file = paste0(RdataDir,  'Bulter_2021_RPE_ageGenes_pval0.01_prediction.allTimepoints_design.Rdata'))
+
+Use_selecteGenes = TRUE
+if(Use_selecteGenes){
+  genes2keep = readRDS(file = paste0(RdataDir, 
+                                     'genes_to_keep_RNAseq_vs_RPEChoroid.microarray_RPE.fetal.age.microarray.rds'))
+  
+  refs = xx0[match(genes2keep, rownames(xx0)), grep('syn_', colnames(xx0))]
+  pvals = cpm$pval[match(rownames(refs), rownames(cpm))]
+  refs$pvals = pvals
+  refs = refs[order(refs$pvals), ]
+  refs = refs[c(1:100), c(1:10)]
+  
+}else{
+  kk = which(cpm$pval<0.001); cat(length(kk), ' age-related genes \n')
+  xx = cpm[kk, c(1:13)]
+  colnames(xx) = paste0(design$donor, '_', design$sex, '_', design$age)
+  
+  refs = xx0[match(rownames(xx), rownames(xx0)), grep('syn_', colnames(xx0))]
   
 }
 
 
+dds = readRDS(paste0(RdataDir, 'RNAseq_RPE.cellLine_Birgit.rds'))
 
+xx = fpm(dds)
+
+ggs_intersect = intersect(rownames(refs), rownames(xx))
+xx = xx[match(ggs_intersect, rownames(xx)), ]
+refs = refs[match(ggs_intersect, rownames(refs)), ]
+
+xx = as.matrix(log1p(xx))
+
+samples = t(rbind(apply(xx[, c(1:4)], 1, mean), apply(xx[, -c(1:4)], 1, mean)))
+colnames(samples) = c('young', 'old')
+
+source('functions_quadratic_programming.R')
+
+samples = as.matrix(samples)
+refs = as.matrix(log1p(2^refs - 2^-4))
+
+#refs = apply(refs, 2, scale)
+#samples = apply(samples, 2, scale)
+
+#scale.ratio.sc <- calc.scale.ratio(refs, samples)
+#scale.norm.sc <- refs/scale.ratio.sc
+
+identity.matx <- data.frame()
+given.cell.typs <- colnames(refs)
+
+for (i in 1:ncol(samples))
+{
+  # i = 1
+  identity<-c()
+  quad.rslt <- quad.prog.calc(i, refs, samples, force.eq = 0)
+  QP <- quad.rslt[[1]]
+  Error <- quad.rslt[[3]]
+  
+  identity <- c(colnames(samples)[i], QP$solution, QP$Lagrangian[1],Error)
+  
+  if (nrow(identity.matx) == 0) {
+    identity.matx <- as.data.frame(t(as.matrix(identity)))
+  } else {
+    
+    identity.matx <- rbind(identity.matx, as.data.frame(t(as.matrix(identity))))
+  }
+}
+
+col.frx.names <- paste("frxn_", given.cell.typs, sep = "")
+colnames(identity.matx)<-c("cell_name", col.frx.names,"Lagrangian","Error")
+
+xx = t(identity.matx[, c(1:11)])
+colnames(xx) = c('young', 'old')
+xx = xx[-1, ]
+xx = data.frame(xx)
+xx$young = as.numeric(xx$young)
+xx$old = as.numeric(xx$old)
+xx[which(xx[,1]<0.001), 1] = 0
+xx[which(xx[,2]<0.001), 2] = 0
+
+xx$age = rownames(xx)
+xx$age = gsub('frxn_syn_', '', xx$age)
+
+as_tibble(xx) %>%
+  tidyr::gather(samples, probs, 1:2) %>%
+  ggplot(aes(x= factor(samples, levels = c('young', 'old')), y = probs, fill=age)) +
+  geom_bar(stat="identity") +
+  scale_fill_brewer(palette="Paired") + 
+  labs(x = "", y = 'Probility') +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12))
+
+ggsave(paste0(resDir, "/res_quadraticProgramming.pdf"), 
+       width = 6, height = 4)
