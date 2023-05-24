@@ -17,6 +17,7 @@ RdataDir = paste0('../results/Rdata/')
 if(!dir.exists(resDir)) dir.create(resDir)
 if(!dir.exists(RdataDir)) dir.create(RdataDir)
 
+## packages and functions
 require(ggplot2)
 require("sva")
 require(limma)
@@ -47,10 +48,134 @@ make.pca.plots = function(fpm, ntop = 1000, pca.dim = c(1, 2), scale.data.pca = 
   
 }
 
+########################################################
+########################################################
+# Section I: process RNA-seq data from Bulter_2021_RNAseq_GSE159435
+# 
+########################################################
+########################################################
+xlist = list.files(path =  '../Bulter_2021_RNAseq_GSE159435_RAW', pattern = '*.txt', full.names = TRUE)
+
+for(n in 1:length(xlist))
+{
+  # n = 1
+  test = read.table(file = xlist[n])
+  if(n == 1){
+    counts = test
+  }else{
+    
+    counts = cbind(counts, test[match(counts[,1], test[,1]), 2])
+    
+  }
+}
+
+colnames(counts) = c('geneID', basename(xlist))
+colnames(counts) = gsub('_filtered_count.txt', '', colnames(counts))
+
+# metadata from https://www.ncbi.nlm.nih.gov/geo/geo2r/?acc=GSE159435
+design = data.frame(GEO.number =  sapply(colnames(counts)[-1], 
+                                         function(x) unlist(strsplit(as.character(x), '_'))[1]),
+                    donor = sapply(colnames(counts)[-1], 
+                                   function(x) unlist(strsplit(as.character(x), '_'))[2]))
+design$batch = c(rep('s1', 7), rep('s2', 6))
+design$age = c(31, 40, 51, 67, 77, 86, 93, 61, 62, 71, 73, 73, 92)
+design$sex = c('M', 'F', 'M', 'F', 'M', 'M', 'F', 'F', 'M', 'M', 'M', 'F', 'M')
+
+annots = read.delim('../data/Human.GRCh38.p13.annot.tsv')
+counts = counts[, c(2:14, 1)]
+
+mm = match(counts$geneID, annots$EnsemblGeneID)
+counts = data.frame(counts, annots[mm, c(2, 1, 4, 5, 6)], stringsAsFactors = FALSE)
+
+counts = counts[which(!is.na(counts$Symbol)), ]
+rownames(counts) = counts$Symbol
+
+counts = counts[, c(1:13)]
+
+save(counts, design, file = paste0(RdataDir, 'design_countTable_RPE_RNAseq_Bulter_2021.Rdata'))
+
+## DESeq2 normalization and PCA
+require(DESeq2)
+
+
+dds <- DESeqDataSetFromMatrix(as.matrix(counts), DataFrame(design), design = ~ 1)
+
+ss = rowSums(counts(dds))
+
+hist(log10(ss), breaks = 100);abline(v = log10(20), lwd = 2.0, col = 'red')
+cat(length(which(ss>50)), ' gene selected \n')
+
+dds = dds[which(ss>50), ]
+
+dds = estimateSizeFactors(dds)
+
+vsd <- varianceStabilizingTransformation(dds, blind = FALSE)
+
+pca=plotPCA(vsd, intgroup = c('age', 'batch', 'sex'), returnData = FALSE)
+print(pca)
+
+pca2save = as.data.frame(plotPCA(vsd, intgroup = c('age', 'batch', 'sex', 'donor'), 
+                                 returnData = TRUE, ntop = 500))
+pca2save$name = paste0(pca2save$donor, '_', pca2save$age, '_', pca2save$sex)
+pca2save$age = factor(pca2save$age)
+
+ggplot(data=pca2save, aes(PC1, PC2, label = name, color= age, shape = batch))  + 
+  geom_point(size=3) + 
+  geom_text(hjust = 1.2, nudge_y = 1.5, size=2.5)
+
+ggsave(paste0(resDir, '/RPE_RNAseq.pdf'), 
+       width=12, height = 8)
+
+save(dds, design, file = paste0(RdataDir, 'dds_design_RPE_RNAseq_Bulter_2021.Rdata'))
+
+load(file = paste0(RdataDir, 'dds_design_RPE_RNAseq_Bulter_2021.Rdata'))
+cpm = fpm(dds)
+cpm = log2(cpm + 2^-4)
+
+xx = apply(cpm, 1, function(x){
+  t = as.numeric(design$age)
+  fit = lm(x ~ t)
+  beta = summary(fit)$coefficients[2,1]
+  pval = summary(fit)$coefficients[2,4]
+  intercept = summary(fit)$coefficients[1,1]
+  return(c(beta, pval, intercept))
+})
+
+
+xx = t(xx)
+xx = xx[, c(2,1,3)]
+colnames(xx) = c('pval', 'beta', 'intercept')
+
+cpm = data.frame(cpm, xx, stringsAsFactors = FALSE)
+cpm = cpm[order(cpm$pval), ]
+
+save(dds, design, cpm, file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+
+load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
+
+cpm[grep('LRAT', rownames(cpm)),]
+
+pdf(paste0(resDir, "/RNAseq_geneExp_age_lm_fitting.pdf"), height = 8, width =10)
+
+for(n in 1:500)
+{
+  cat('n -- ', n, '\n')
+  x =  as.numeric(cpm[n, c(1:13)])
+  t =  as.numeric(design$age)
+  fit = lm(x ~ t)
+  
+  plot(t, x, cex = 1.2, col = 'darkblue', main = paste0(rownames(cpm)[n],  ' : pval -- ', 
+                                                        signif(cpm$pval[n], d =2)))
+  abline(fit$coefficients, lwd = 1.2, col = 'red')
+  
+}
+
+dev.off()
+
 
 ########################################################
 ########################################################
-# Section I : process micorarray data from GSE18811
+# Section II : process micorarray data from GSE18811
 # 
 ########################################################
 ########################################################
@@ -109,33 +234,6 @@ save(mapping, design, ex, file = paste0(RdataDir, 'design_probAnnot_expr.Rdata')
 mat = as.matrix(ex)
 
 mat = log2(mat)
-#bg = mat[, grep('_BG', colnames(mat))]
-#mat = mat[, grep('_BG', colnames(mat), invert = TRUE)]
-
-#ex <- log2(ex)  # log2 transformation
-
-# # box-and-whisker plot
-# dev.new(width=3+ncol(gset)/6, height=5)
-# par(mar=c(7,4,2,1))
-# title <- paste ("GSE18811", "/", annotation(gset), sep ="")
-# boxplot(ex, boxwex=0.7, notch=T, main=title, outline=FALSE, las=2)
-# dev.off()
-# 
-# # expression value distribution plot
-# par(mar=c(4,4,2,1))
-# title <- paste ("GSE18811", "/", annotation(gset), " value distribution", sep ="")
-# plotDensities(ex, main=title, legend=F)
-# 
-# # mean-variance trend
-# ex <- na.omit(ex) # eliminate rows with NAs
-# plotSA(lmFit(ex), main="Mean variance trend, GSE18811")
-# 
-# # UMAP plot (multi-dimensional scaling)
-# ex <- ex[!duplicated(ex), ]  # remove duplicates
-# ump <- umap(t(ex), n_neighbors = 13, random_state = 123)
-# plot(ump$layout, main="UMAP plot, nbrs=13", xlab="", ylab="", pch=20, cex=1.5)
-# library("maptools")  # point labels without overlaps
-# pointLabel(ump$layout, labels = rownames(ump$layout), method="SANN", cex=0.6)
 
 ## quantil normalization
 library(preprocessCore)
@@ -266,7 +364,7 @@ saveRDS(genes2keep,
 
 ########################################################
 ########################################################
-# Section 1.5:
+# Section II.5:
 # download and process microarray data from 
 # Newman AM, Gallo NB, Hancox LS, Miller NJ et al. 
 # Genome Med 2012 Feb 24;4(2):16. 
@@ -479,130 +577,6 @@ ggplot(data=pca2save, aes(PC1, PC2, label = name))  +
   geom_text(hjust = 0.3, nudge_y = 0.3, size=2.5)
 
 #ggs2keep = readRDS(file = paste0(RdataDir, 'genes_to_keep_RNAseq_vs_RPEChoroid.microarray.rds'))
-########################################################
-########################################################
-# Section III: process RNA-seq data from Bulter_2021_RNAseq_GSE159435
-# 
-########################################################
-########################################################
-xlist = list.files(path =  '../Bulter_2021_RNAseq_GSE159435_RAW', pattern = '*.txt', full.names = TRUE)
-
-for(n in 1:length(xlist))
-{
-  # n = 1
-  test = read.table(file = xlist[n])
-  if(n == 1){
-    counts = test
-  }else{
-    
-    counts = cbind(counts, test[match(counts[,1], test[,1]), 2])
-    
-  }
-}
-
-colnames(counts) = c('geneID', basename(xlist))
-colnames(counts) = gsub('_filtered_count.txt', '', colnames(counts))
-
-# metadata from https://www.ncbi.nlm.nih.gov/geo/geo2r/?acc=GSE159435
-design = data.frame(GEO.number =  sapply(colnames(counts)[-1], 
-                                         function(x) unlist(strsplit(as.character(x), '_'))[1]),
-                    donor = sapply(colnames(counts)[-1], 
-                                   function(x) unlist(strsplit(as.character(x), '_'))[2]))
-design$batch = c(rep('s1', 7), rep('s2', 6))
-design$age = c(31, 40, 51, 67, 77, 86, 93, 61, 62, 71, 73, 73, 92)
-design$sex = c('M', 'F', 'M', 'F', 'M', 'M', 'F', 'F', 'M', 'M', 'M', 'F', 'M')
-
-annots = read.delim('../data/Human.GRCh38.p13.annot.tsv')
-counts = counts[, c(2:14, 1)]
-
-mm = match(counts$geneID, annots$EnsemblGeneID)
-counts = data.frame(counts, annots[mm, c(2, 1, 4, 5, 6)], stringsAsFactors = FALSE)
-
-counts = counts[which(!is.na(counts$Symbol)), ]
-rownames(counts) = counts$Symbol
-
-counts = counts[, c(1:13)]
-
-save(counts, design, file = paste0(RdataDir, 'design_countTable_RPE_RNAseq_Bulter_2021.Rdata'))
-
-## DESeq2 normalization and PCA
-require(DESeq2)
-
-
-dds <- DESeqDataSetFromMatrix(as.matrix(counts), DataFrame(design), design = ~ 1)
-
-ss = rowSums(counts(dds))
-
-hist(log10(ss), breaks = 100);abline(v = log10(20), lwd = 2.0, col = 'red')
-cat(length(which(ss>50)), ' gene selected \n')
-
-dds = dds[which(ss>50), ]
-
-dds = estimateSizeFactors(dds)
-
-vsd <- varianceStabilizingTransformation(dds, blind = FALSE)
-
-pca=plotPCA(vsd, intgroup = c('age', 'batch', 'sex'), returnData = FALSE)
-print(pca)
-
-pca2save = as.data.frame(plotPCA(vsd, intgroup = c('age', 'batch', 'sex', 'donor'), 
-                                 returnData = TRUE, ntop = 500))
-pca2save$name = paste0(pca2save$donor, '_', pca2save$age, '_', pca2save$sex)
-pca2save$age = factor(pca2save$age)
-
-ggplot(data=pca2save, aes(PC1, PC2, label = name, color= age, shape = batch))  + 
-  geom_point(size=3) + 
-  geom_text(hjust = 1.2, nudge_y = 1.5, size=2.5)
-
-ggsave(paste0(resDir, '/RPE_RNAseq.pdf'), 
-       width=12, height = 8)
-
-save(dds, design, file = paste0(RdataDir, 'dds_design_RPE_RNAseq_Bulter_2021.Rdata'))
-
-load(file = paste0(RdataDir, 'dds_design_RPE_RNAseq_Bulter_2021.Rdata'))
-cpm = fpm(dds)
-cpm = log2(cpm + 2^-4)
-
-xx = apply(cpm, 1, function(x){
-  t = as.numeric(design$age)
-  fit = lm(x ~ t)
-  beta = summary(fit)$coefficients[2,1]
-  pval = summary(fit)$coefficients[2,4]
-  intercept = summary(fit)$coefficients[1,1]
-  return(c(beta, pval, intercept))
-})
-
-
-xx = t(xx)
-xx = xx[, c(2,1,3)]
-colnames(xx) = c('pval', 'beta', 'intercept')
-
-cpm = data.frame(cpm, xx, stringsAsFactors = FALSE)
-cpm = cpm[order(cpm$pval), ]
-
-save(dds, design, cpm, file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
-
-load(file = paste0(RdataDir, 'dds_design_ageGenes_RPE_RNAseq_Bulter_2021.Rdata'))
-
-cpm[grep('LRAT', rownames(cpm)),]
-
-pdf(paste0(resDir, "/RNAseq_geneExp_age_lm_fitting.pdf"), height = 8, width =10)
-
-for(n in 1:500)
-{
-  cat('n -- ', n, '\n')
-  x =  as.numeric(cpm[n, c(1:13)])
-  t =  as.numeric(design$age)
-  fit = lm(x ~ t)
-  
-  plot(t, x, cex = 1.2, col = 'darkblue', main = paste0(rownames(cpm)[n],  ' : pval -- ', 
-                                                        signif(cpm$pval[n], d =2)))
-  abline(fit$coefficients, lwd = 1.2, col = 'red')
-  
-}
-
-dev.off()
-
 
 ##########################################
 # select a list of RPE aging-related genes
@@ -675,7 +649,7 @@ ggsave(paste0(resDir, '/RPE_RNAseq_PCA_age.genes_pval0.01_predition_alltimepoint
 
 ########################################################
 ########################################################
-# Section III: 
+# Section IV: 
 # test to integrate RNA-seq data and microarray 
 # 
 ########################################################
@@ -810,12 +784,13 @@ if(Test_intergration_combat){
 
 ########################################################
 ########################################################
-# Section : Test quadratic programming to assign age
+# Section V: Test quadratic programming to assign age
 # 
 ########################################################
 ########################################################
+
 ##########################################
-# import the cellline RNA-seq data and process 
+# import first the cellline RNA-seq data and process 
 ##########################################
 require(DESeq2)
 
@@ -835,6 +810,7 @@ dds = dds[which(ss>20), ]
 dds = estimateSizeFactors(dds)
 
 saveRDS(dds, file = paste0(RdataDir, 'RNAseq_RPE.cellLine_Birgit.rds'))
+
 ##########################################
 # test quadratic programming
 ##########################################
