@@ -144,7 +144,7 @@ xx = apply(cpm, 1, function(x){
 
 xx = t(xx)
 xx = xx[, c(2,1,3)]
-colnames(xx) = c('pval', 'beta', 'intercept')
+colnames(xx) = c('pval', 'beta', 'intercept') # slope and offset
 
 cpm = data.frame(cpm, xx, stringsAsFactors = FALSE)
 cpm = cpm[order(cpm$pval), ]
@@ -790,7 +790,7 @@ if(Test_intergration_combat){
 ########################################################
 
 ##########################################
-# import first the cellline RNA-seq data and process 
+# import first the cellline RNA-seq data and process from Birgit
 ##########################################
 require(DESeq2)
 
@@ -878,8 +878,8 @@ if(Add_microarray){
   
   colnames(samples) = c('young', 'old', 'fetal.ma', 'old.ma')
   
-  
 }else{
+  
   samples = xx
   #colnames(samples) = colnames(xx0)[1:13]
   #samples = samples[, order(design$age)]
